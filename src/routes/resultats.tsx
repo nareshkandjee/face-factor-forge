@@ -7,10 +7,11 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
-import { Download, Loader2, RefreshCw, Sparkles, AlertTriangle, FlaskConical } from "lucide-react";
+import { Download, Loader2, RefreshCw, Sparkles, AlertTriangle, FlaskConical, Brain } from "lucide-react";
 import {
   generatePrompts,
   generateImage,
+  trainPersonalModel,
   markSubmissionComplete,
   getSubmission,
   TEST_MODE_PHOTO_COUNT,
@@ -33,21 +34,43 @@ type Slot =
   | { status: "done"; prompt: string; url: string }
   | { status: "error"; prompt: string; error: string };
 
+type Phase = "loading" | "training" | "prompting" | "generating" | "done" | "error";
+
+const TRAINING_TIPS = [
+  "💡 Le sais-tu ? Les profils avec un sourire franc reçoivent 14% de likes en plus",
+  "💡 L'ordre des photos compte : ta meilleure photo en premier, toujours",
+  "💡 Inclure une photo plein corps double le taux de matchs (étude Hinge 2024)",
+  "💡 Évite les selfies miroir, ils diminuent l'attractivité perçue de 27%",
+  "💡 Une photo en activité (sport, voyage, hobby) génère 2x plus de conversations",
+];
+const TRAINING_DURATION_MS = 6 * 60 * 1000;
+
 function ResultsPage() {
   const { id, test } = Route.useSearch();
   const isTestMode = test === 1;
   const photoCount = isTestMode ? TEST_MODE_PHOTO_COUNT : PRODUCTION_PHOTO_COUNT;
   const [slots, setSlots] = useState<Slot[]>([]);
-  const [phase, setPhase] = useState<"loading" | "prompting" | "generating" | "done" | "error">(
-    "loading",
-  );
+  const [phase, setPhase] = useState<Phase>("loading");
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [trainingStart, setTrainingStart] = useState<number | null>(null);
+  const [trainingElapsed, setTrainingElapsed] = useState(0);
+  const [tipIndex, setTipIndex] = useState(0);
+  const [loraInfo, setLoraInfo] = useState<{ loraUrl: string; triggerWord: string } | null>(null);
   const startedRef = useRef(false);
 
   const promptsFn = useServerFn(generatePrompts);
   const imageFn = useServerFn(generateImage);
+  const trainFn = useServerFn(trainPersonalModel);
   const completeFn = useServerFn(markSubmissionComplete);
   const subFn = useServerFn(getSubmission);
+
+  // Training progress ticker + tips rotation
+  useEffect(() => {
+    if (phase !== "training" || !trainingStart) return;
+    const tick = setInterval(() => setTrainingElapsed(Date.now() - trainingStart), 1000);
+    const tipTimer = setInterval(() => setTipIndex((i) => (i + 1) % TRAINING_TIPS.length), 8000);
+    return () => { clearInterval(tick); clearInterval(tipTimer); };
+  }, [phase, trainingStart]);
 
   useEffect(() => {
     if (!id || startedRef.current) return;
@@ -57,26 +80,40 @@ function ResultsPage() {
 
     (async () => {
       try {
-        // 1. Load submission to get reference photos + check if already done
+        // 1. Load submission
         setPhase("loading");
         const { submission } = await subFn({ data: { submissionId: id } });
-        const referenceUrls = submission.photos_urls ?? [];
-        if (referenceUrls.length === 0) throw new Error("Aucune photo de référence trouvée.");
 
         // Already completed → display existing photos
         if (submission.status === "completed" && (submission.generated_photos_urls?.length ?? 0) >= photoCount) {
           setSlots(
             submission.generated_photos_urls!.map((url) => ({
-              status: "done" as const,
-              prompt: "",
-              url,
+              status: "done" as const, prompt: "", url,
             })),
           );
           setPhase("done");
           return;
         }
 
-        // 2. Generate N prompts
+        // 2. Train LoRA (or reuse if already trained)
+        let loraUrl = submission.lora_url as string | null;
+        let triggerWord = submission.trigger_word as string | null;
+        if (!loraUrl || !triggerWord) {
+          setPhase("training");
+          setTrainingStart(Date.now());
+          const trainResult = await trainFn({ data: { submissionId: id } });
+          if (!trainResult.ok) {
+            setGlobalError(trainResult.message);
+            setPhase("error");
+            toast.error(trainResult.message);
+            return;
+          }
+          loraUrl = trainResult.loraUrl;
+          triggerWord = trainResult.triggerWord;
+        }
+        setLoraInfo({ loraUrl, triggerWord });
+
+        // 3. Generate prompts
         setPhase("prompting");
         const promptResult = await promptsFn({ data: { submissionId: id, count: photoCount } });
         if (!promptResult.ok) {
@@ -89,8 +126,7 @@ function ResultsPage() {
         setSlots(prompts.map((p) => ({ status: "pending" as const, prompt: p })));
         setPhase("generating");
 
-        // 3. Generate 12 images SEQUENTIALLY via Lovable AI (Gemini Nano Banana Pro).
-        // Plus permissif que OpenAI : 2s entre chaque appel suffit.
+        // 4. Generate images sequentially via Flux LoRA
         for (let index = 0; index < prompts.length; index++) {
           const prompt = prompts[index]!;
           setSlots((prev) => {
@@ -99,33 +135,18 @@ function ResultsPage() {
             return next;
           });
 
-          let attempt = 0;
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            attempt++;
-            const result = await imageFn({
-              data: { submissionId: id, prompt, index, referenceUrls },
+          const result = await imageFn({
+            data: { submissionId: id, prompt, index, loraUrl, triggerWord },
+          });
+
+          if (result.ok) {
+            console.log(`[generateImage] slot ${index} OK`);
+            setSlots((prev) => {
+              const next = [...prev];
+              next[index] = { status: "done", prompt, url: result.url };
+              return next;
             });
-
-            if (result.ok) {
-              console.log(`[generateImage] slot ${index} OK with model=${result.modelUsed}`);
-              setSlots((prev) => {
-                const next = [...prev];
-                next[index] = { status: "done", prompt, url: result.url };
-                return next;
-              });
-              break;
-            }
-
-            // 429 rate limit → wait 10s and retry once
-            const isRate = result.httpStatus === 429;
-            if (isRate && attempt === 1) {
-              toast.warning(`Limite de débit sur la photo ${index + 1}, nouvelle tentative dans 10s...`);
-              await sleep(10000);
-              continue;
-            }
-
-            // Definitive failure
+          } else {
             console.error(`[generateImage] slot ${index} failed:`, result);
             toast.error(`Photo ${index + 1}: ${result.message ?? "erreur"}`);
             setSlots((prev) => {
@@ -133,16 +154,12 @@ function ResultsPage() {
               next[index] = { status: "error", prompt, error: result.message ?? "Erreur" };
               return next;
             });
-            break;
           }
 
-          // Throttle: 2s between requests
-          if (index < prompts.length - 1) {
-            await sleep(2000);
-          }
+          if (index < prompts.length - 1) await sleep(2000);
         }
 
-        // 4. Mark complete only if all 12 succeeded
+        // 5. Mark complete only if all succeeded
         setSlots((prev) => {
           if (prev.every((s) => s.status === "done")) {
             completeFn({ data: { submissionId: id } }).catch(() => undefined);
@@ -157,10 +174,10 @@ function ResultsPage() {
         toast.error(msg);
       }
     })();
-  }, [id, photoCount, promptsFn, imageFn, completeFn, subFn]);
+  }, [id, photoCount, promptsFn, imageFn, trainFn, completeFn, subFn]);
 
   const retrySlot = async (index: number) => {
-    if (!id) return;
+    if (!id || !loraInfo) return;
     const slot = slots[index];
     if (!slot || slot.status === "done") return;
     setSlots((prev) => {
@@ -169,18 +186,16 @@ function ResultsPage() {
       return next;
     });
     try {
-      const { submission } = await subFn({ data: { submissionId: id } });
       const result = await imageFn({
         data: {
           submissionId: id,
           prompt: slot.prompt,
           index,
-          referenceUrls: submission.photos_urls ?? [],
+          loraUrl: loraInfo.loraUrl,
+          triggerWord: loraInfo.triggerWord,
         },
       });
-      if (!result.ok) {
-        throw new Error(result.message ?? "Erreur génération");
-      }
+      if (!result.ok) throw new Error(result.message ?? "Erreur génération");
       setSlots((prev) => {
         const next = [...prev];
         next[index] = { status: "done", prompt: slot.prompt, url: result.url };
@@ -254,6 +269,8 @@ function ResultsPage() {
     );
   }
 
+  const trainingProgress = Math.min(99, Math.round((trainingElapsed / TRAINING_DURATION_MS) * 100));
+
   return (
     <div className="min-h-screen">
       <SiteHeader />
@@ -264,19 +281,58 @@ function ResultsPage() {
             <FlaskConical className="h-3.5 w-3.5" /> Mode test ({TEST_MODE_PHOTO_COUNT} photos)
           </div>
         )}
-        <header className="text-center">
-          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">
-            Tes photos <span className="text-gradient-primary">MatchShot</span>
-          </h1>
-          <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
-            {allDone
-              ? `Tes ${photoCount} photos sont prêtes 🔥`
-              : `${photoCount} photos optimisées générées rien que pour toi.`}
-          </p>
-        </header>
 
-        {/* Progress */}
-        {phase !== "error" && (
+        {/* Training phase — dedicated full-width UI */}
+        {phase === "training" && (
+          <div className="mx-auto max-w-xl text-center py-12">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-primary text-primary-foreground shadow-glow">
+              <Brain className="h-8 w-8 animate-pulse" />
+            </div>
+            <h1 className="mt-6 text-3xl md:text-4xl font-extrabold tracking-tight">
+              🧠 L'IA apprend ton visage...
+            </h1>
+            <p className="mt-3 text-muted-foreground">
+              Cela prend 5 à 7 minutes. On entraîne un modèle IA personnel rien que pour toi.
+            </p>
+
+            <div className="mt-8 h-2 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-gradient-primary transition-all duration-1000 ease-linear"
+                style={{ width: `${trainingProgress}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {Math.floor(trainingElapsed / 60000)} min {String(Math.floor((trainingElapsed % 60000) / 1000)).padStart(2, "0")}s écoulées · ~{trainingProgress}%
+            </p>
+
+            <div className="mt-10 rounded-2xl border border-border bg-surface/60 p-6 min-h-[80px] flex items-center justify-center">
+              <p key={tipIndex} className="text-sm text-foreground animate-in fade-in duration-700">
+                {TRAINING_TIPS[tipIndex]}
+              </p>
+            </div>
+
+            <p className="mt-6 text-xs text-muted-foreground italic">
+              Ne ferme pas la page. On y est presque.
+            </p>
+          </div>
+        )}
+
+        {/* Header (hidden during training phase) */}
+        {phase !== "training" && (
+          <header className="text-center">
+            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">
+              Tes photos <span className="text-gradient-primary">MatchShot</span>
+            </h1>
+            <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
+              {allDone
+                ? `Tes ${photoCount} photos sont prêtes 🔥`
+                : `${photoCount} photos optimisées générées rien que pour toi.`}
+            </p>
+          </header>
+        )}
+
+        {/* Progress (non-training phases) */}
+        {phase !== "error" && phase !== "training" && (
           <div className="mt-10 mx-auto max-w-lg rounded-3xl border border-border bg-surface/60 p-5">
             <div className="flex items-center gap-3">
               {allDone ? (
@@ -298,14 +354,9 @@ function ResultsPage() {
               />
             </div>
             {phase === "generating" && !allDone && (
-              <div className="mt-3 space-y-1 text-center">
-                <p className="text-xs text-muted-foreground">
-                  Temps estimé restant : ~{Math.max(1, totalSlots - doneCount)} minute{totalSlots - doneCount > 1 ? "s" : ""}
-                </p>
-                <p className="text-xs text-muted-foreground/80 italic">
-                  L'IA réfléchit pour préserver ton visage à 100%. Cela prend ~1 min par photo. Ne ferme pas la page.
-                </p>
-              </div>
+              <p className="mt-3 text-xs text-muted-foreground text-center">
+                Temps estimé restant : ~{Math.max(1, Math.ceil((totalSlots - doneCount) / 2))} minute{totalSlots - doneCount > 2 ? "s" : ""}
+              </p>
             )}
           </div>
         )}
@@ -325,7 +376,7 @@ function ResultsPage() {
         )}
 
         {/* Grid */}
-        {slots.length > 0 && (
+        {slots.length > 0 && phase !== "training" && (
           <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {slots.map((slot, i) => (
               <div
@@ -376,7 +427,7 @@ function ResultsPage() {
         )}
 
         {/* Download all */}
-        {doneCount > 0 && (
+        {doneCount > 0 && phase !== "training" && (
           <div className="mt-12 flex justify-center">
             <Button
               onClick={downloadAllZip}
