@@ -157,7 +157,7 @@ function ResultsPage() {
         toast.error(msg);
       }
     })();
-  }, [id, promptsFn, imageFn, completeFn, subFn]);
+  }, [id, photoCount, promptsFn, imageFn, completeFn, subFn]);
 
   const retrySlot = async (index: number) => {
     if (!id) return;
