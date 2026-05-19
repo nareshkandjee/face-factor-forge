@@ -34,7 +34,9 @@ type Slot =
   | { status: "error"; prompt: string; error: string };
 
 function ResultsPage() {
-  const { id } = Route.useSearch();
+  const { id, test } = Route.useSearch();
+  const isTestMode = test === 1;
+  const photoCount = isTestMode ? TEST_MODE_PHOTO_COUNT : PRODUCTION_PHOTO_COUNT;
   const [slots, setSlots] = useState<Slot[]>([]);
   const [phase, setPhase] = useState<"loading" | "prompting" | "generating" | "done" | "error">(
     "loading",
