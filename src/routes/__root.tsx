@@ -8,13 +8,12 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { zodValidator, fallback } from "@tanstack/zod-adapter";
 import { z } from "zod";
 
 import appCss from "../styles.css?url";
 
 const rootSearchSchema = z.object({
-  test: fallback(z.union([z.literal(0), z.literal(1)]), 0).optional(),
+  test: z.union([z.literal(0), z.literal(1)]).optional().catch(undefined),
 });
 
 function NotFoundComponent() {
