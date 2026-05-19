@@ -8,7 +8,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const OPENAI_API = "https://api.openai.com/v1";
 
-// ---------- 1. Generate 12 prompts via GPT-4o ----------
+// ---------- 1. Generate 12 prompts via GPT-5.4 mini ----------
 
 const SYSTEM_PROMPT =
   "Tu es un directeur artistique expert en photos de profil pour applications de rencontres (Tinder, Hinge, Bumble). Génère 12 prompts de génération d'image en ANGLAIS, distincts et variés, optimisés pour séduire la cible décrite. Chaque prompt doit décrire UNE scène précise avec : lieu, lumière (golden hour, studio, néon, naturelle...), pose, expression, tenue cohérente avec le style indiqué, cadrage (close-up portrait, plan américain, plan large). Varie les scènes selon les types demandés. Varie les expressions (sourire franc, regard intense, rire naturel, expression réfléchie). Retourne UNIQUEMENT un JSON valide au format : {\"prompts\": [\"prompt1\", \"prompt2\", ...]} avec exactement 12 prompts en anglais.";
@@ -57,9 +57,18 @@ export const generatePrompts = createServerFn({ method: "POST" })
     if (!res.ok) {
       const text = await res.text();
       console.error("[generatePrompts] OpenAI error:", res.status, text);
-      if (res.status === 401) throw new Error("Clé OpenAI invalide.");
-      if (res.status === 429) throw new Error("Quota OpenAI atteint — crédit insuffisant ou rate limit.");
-      throw new Error(`Erreur OpenAI (${res.status}).`);
+      let code: string | null = null;
+      let message = `Erreur OpenAI (${res.status}).`;
+      try {
+        const parsed = JSON.parse(text) as { error?: { code?: string; message?: string; type?: string } };
+        code = parsed.error?.code ?? parsed.error?.type ?? null;
+        message = parsed.error?.message ?? message;
+      } catch {
+        /* not JSON */
+      }
+      if (res.status === 401) message = "Clé OpenAI invalide.";
+      if (res.status === 429) message = "Quota OpenAI atteint — ajoute des crédits ou réessaie plus tard.";
+      return { ok: false as const, prompts: [], httpStatus: res.status, code, message };
     }
 
     const json = (await res.json()) as {
@@ -70,14 +79,16 @@ export const generatePrompts = createServerFn({ method: "POST" })
     try {
       parsed = JSON.parse(content);
     } catch {
-      throw new Error("Réponse OpenAI mal formée.");
+      return { ok: false as const, prompts: [], httpStatus: 500, code: "bad_json", message: "Réponse OpenAI mal formée." };
     }
     const prompts = Array.isArray(parsed.prompts)
       ? (parsed.prompts as unknown[]).filter((p): p is string => typeof p === "string")
       : [];
-    if (prompts.length < 12) throw new Error(`Seulement ${prompts.length} prompts générés.`);
+    if (prompts.length < 12) {
+      return { ok: false as const, prompts: [], httpStatus: 500, code: "not_enough_prompts", message: `Seulement ${prompts.length} prompts générés.` };
+    }
 
-    return { prompts: prompts.slice(0, 12) };
+    return { ok: true as const, prompts: prompts.slice(0, 12) };
   });
 
 // ---------- 2. Generate ONE image via gpt-image-2 ----------
