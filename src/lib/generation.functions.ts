@@ -8,16 +8,31 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const OPENAI_API = "https://api.openai.com/v1";
 
-// ---------- 1. Generate 12 prompts via GPT-5.4 mini ----------
+// Photo count configuration
+export const TEST_MODE_PHOTO_COUNT = 3;
+export const PRODUCTION_PHOTO_COUNT = 12;
 
-const SYSTEM_PROMPT =
-  "Tu es un directeur artistique expert en photos de profil pour applications de rencontres (Tinder, Hinge, Bumble). Génère 12 prompts de génération d'image en ANGLAIS, distincts et variés, optimisés pour séduire la cible décrite. Chaque prompt doit décrire UNE scène précise avec : lieu, lumière (golden hour, studio, néon, naturelle...), pose, expression, tenue cohérente avec le style indiqué, cadrage (close-up portrait, plan américain, plan large). Varie les scènes selon les types demandés. Varie les expressions (sourire franc, regard intense, rire naturel, expression réfléchie). Retourne UNIQUEMENT un JSON valide au format : {\"prompts\": [\"prompt1\", \"prompt2\", ...]} avec exactement 12 prompts en anglais.";
+// ---------- 1. Generate N prompts via GPT-5.4 mini ----------
+
+const buildSystemPrompt = (count: number) =>
+  count <= 3
+    ? `Tu es un directeur artistique expert en photos de profil pour applications de rencontres (Tinder, Hinge, Bumble). Génère ${count} prompts de génération d'image en ANGLAIS, MAXIMALEMENT DIFFÉRENTS les uns des autres, optimisés pour séduire la cible décrite. Choisis les ${count} scènes les plus contrastées pour montrer la diversité : 1 portrait close-up (cadrage serré, visage), 1 plan américain en activité (sport, hobby, voyage), 1 plan large lifestyle (scène ambiance, lieu emblématique). Chaque prompt décrit UNE scène précise avec lieu, lumière, pose, expression, tenue, cadrage. Varie les expressions. Retourne UNIQUEMENT un JSON valide au format : {"prompts": ["prompt1", ...]} avec exactement ${count} prompts en anglais.`
+    : `Tu es un directeur artistique expert en photos de profil pour applications de rencontres (Tinder, Hinge, Bumble). Génère ${count} prompts de génération d'image en ANGLAIS, distincts et variés, optimisés pour séduire la cible décrite. Chaque prompt doit décrire UNE scène précise avec : lieu, lumière (golden hour, studio, néon, naturelle...), pose, expression, tenue cohérente avec le style indiqué, cadrage (close-up portrait, plan américain, plan large). Varie les scènes selon les types demandés. Varie les expressions (sourire franc, regard intense, rire naturel, expression réfléchie). Retourne UNIQUEMENT un JSON valide au format : {"prompts": ["prompt1", "prompt2", ...]} avec exactement ${count} prompts en anglais.`;
 
 export const generatePrompts = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ submissionId: z.string().uuid() }).parse(d))
+  .inputValidator((d) =>
+    z
+      .object({
+        submissionId: z.string().uuid(),
+        count: z.number().int().min(1).max(12).optional(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data }) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("OPENAI_API_KEY manquante côté serveur.");
+    const count = data.count ?? PRODUCTION_PHOTO_COUNT;
+    const systemPrompt = buildSystemPrompt(count);
 
     // Load the submission to build the user prompt
     const { data: sub, error } = await supabaseAdmin
@@ -48,7 +63,7 @@ export const generatePrompts = createServerFn({ method: "POST" })
         model: "gpt-5.4-mini",
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
       }),
@@ -84,11 +99,11 @@ export const generatePrompts = createServerFn({ method: "POST" })
     const prompts = Array.isArray(parsed.prompts)
       ? (parsed.prompts as unknown[]).filter((p): p is string => typeof p === "string")
       : [];
-    if (prompts.length < 12) {
+    if (prompts.length < count) {
       return { ok: false as const, prompts: [], httpStatus: 500, code: "not_enough_prompts", message: `Seulement ${prompts.length} prompts générés.` };
     }
 
-    return { ok: true as const, prompts: prompts.slice(0, 12) };
+    return { ok: true as const, prompts: prompts.slice(0, count) };
   });
 
 // ---------- 2. Generate ONE image via Lovable AI (Gemini Nano Banana Pro) ----------

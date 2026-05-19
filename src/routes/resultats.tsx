@@ -7,15 +7,20 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
-import { Download, Loader2, RefreshCw, Sparkles, AlertTriangle } from "lucide-react";
+import { Download, Loader2, RefreshCw, Sparkles, AlertTriangle, FlaskConical } from "lucide-react";
 import {
   generatePrompts,
   generateImage,
   markSubmissionComplete,
   getSubmission,
+  TEST_MODE_PHOTO_COUNT,
+  PRODUCTION_PHOTO_COUNT,
 } from "@/lib/generation.functions";
 
-const searchSchema = z.object({ id: z.string().uuid().optional() });
+const searchSchema = z.object({
+  id: z.string().uuid().optional(),
+  test: z.union([z.literal(0), z.literal(1)]).optional(),
+});
 
 export const Route = createFileRoute("/resultats")({
   validateSearch: searchSchema,
@@ -29,7 +34,9 @@ type Slot =
   | { status: "error"; prompt: string; error: string };
 
 function ResultsPage() {
-  const { id } = Route.useSearch();
+  const { id, test } = Route.useSearch();
+  const isTestMode = test === 1;
+  const photoCount = isTestMode ? TEST_MODE_PHOTO_COUNT : PRODUCTION_PHOTO_COUNT;
   const [slots, setSlots] = useState<Slot[]>([]);
   const [phase, setPhase] = useState<"loading" | "prompting" | "generating" | "done" | "error">(
     "loading",
@@ -57,7 +64,7 @@ function ResultsPage() {
         if (referenceUrls.length === 0) throw new Error("Aucune photo de référence trouvée.");
 
         // Already completed → display existing photos
-        if (submission.status === "completed" && (submission.generated_photos_urls?.length ?? 0) >= 12) {
+        if (submission.status === "completed" && (submission.generated_photos_urls?.length ?? 0) >= photoCount) {
           setSlots(
             submission.generated_photos_urls!.map((url) => ({
               status: "done" as const,
@@ -69,9 +76,9 @@ function ResultsPage() {
           return;
         }
 
-        // 2. Generate 12 prompts
+        // 2. Generate N prompts
         setPhase("prompting");
-        const promptResult = await promptsFn({ data: { submissionId: id } });
+        const promptResult = await promptsFn({ data: { submissionId: id, count: photoCount } });
         if (!promptResult.ok) {
           setGlobalError(promptResult.message);
           setPhase("error");
@@ -150,7 +157,7 @@ function ResultsPage() {
         toast.error(msg);
       }
     })();
-  }, [id, promptsFn, imageFn, completeFn, subFn]);
+  }, [id, photoCount, promptsFn, imageFn, completeFn, subFn]);
 
   const retrySlot = async (index: number) => {
     if (!id) return;
@@ -229,7 +236,7 @@ function ResultsPage() {
   };
 
   const doneCount = slots.filter((s) => s.status === "done").length;
-  const totalSlots = slots.length || 12;
+  const totalSlots = slots.length || photoCount;
   const allDone = phase === "done" && doneCount === totalSlots;
 
   if (!id) {
@@ -252,14 +259,19 @@ function ResultsPage() {
       <SiteHeader />
       <Toaster richColors theme="dark" />
       <main className="mx-auto max-w-6xl px-5 py-12">
+        {isTestMode && (
+          <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs font-semibold text-amber-300">
+            <FlaskConical className="h-3.5 w-3.5" /> Mode test ({TEST_MODE_PHOTO_COUNT} photos)
+          </div>
+        )}
         <header className="text-center">
           <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">
             Tes photos <span className="text-gradient-primary">MatchShot</span>
           </h1>
           <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
             {allDone
-              ? "Tes 12 photos sont prêtes 🔥"
-              : "12 photos optimisées générées rien que pour toi."}
+              ? `Tes ${photoCount} photos sont prêtes 🔥`
+              : `${photoCount} photos optimisées générées rien que pour toi.`}
           </p>
         </header>
 
