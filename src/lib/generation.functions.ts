@@ -172,69 +172,116 @@ export const generateImage = createServerFn({ method: "POST" })
     }
 
     const fullPrompt = IDENTITY_PREFIX + data.prompt + IDENTITY_SUFFIX;
-    console.log(`[generateImage] Using model: ${IMAGE_MODEL} (index ${data.index})`);
-
     const userContent: Array<Record<string, unknown>> = [
       { type: "text", text: fullPrompt },
       ...referenceDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
     ];
-
-    const res = await fetch(LOVABLE_AI_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: IMAGE_MODEL,
-        messages: [{ role: "user", content: userContent }],
-        modalities: ["image", "text"],
-      }),
+    const requestBody = JSON.stringify({
+      messages: [{ role: "user", content: userContent }],
+      modalities: ["image", "text"],
     });
+    const payloadKB = (requestBody.length / 1024).toFixed(1);
+    const imgLabel = `${data.index + 1}/12`;
 
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`[generateImage] Lovable AI error (status=${res.status}):`, text);
-      let code: string | null = null;
-      let message = `Erreur Lovable AI (${res.status}).`;
+    let lastErr: {
+      httpStatus: number;
+      code: string | null;
+      message: string;
+      modelUsed: string;
+    } = { httpStatus: 500, code: "unknown", message: "Aucune tentative.", modelUsed: IMAGE_MODEL_PRO };
+    let imageUrl: string | undefined;
+    let modelUsedFinal = IMAGE_MODEL_PRO;
+    let fallbackTriggered = false;
+
+    for (let attempt = 0; attempt < ATTEMPTS.length; attempt++) {
+      const plan = ATTEMPTS[attempt]!;
+      if (plan.model !== IMAGE_MODEL_PRO) fallbackTriggered = true;
+      const startedAt = new Date();
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), plan.timeoutMs);
+      console.log(
+        `[generateImage] image=${imgLabel} attempt=${attempt + 1}/${ATTEMPTS.length} model=${plan.model} timeoutMs=${plan.timeoutMs} payload=${payloadKB}KB start=${startedAt.toISOString()} fallback=${fallbackTriggered}`,
+      );
+
       try {
-        const parsed = JSON.parse(text) as { error?: { code?: string; message?: string; type?: string } };
-        if (parsed.error) {
-          code = parsed.error.code ?? parsed.error.type ?? null;
-          if (parsed.error.message) message = parsed.error.message;
+        const res = await fetch(LOVABLE_AI_API, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: requestBody.replace(/^\{/, `{"model":${JSON.stringify(plan.model)},`),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        const endedAt = new Date();
+        const durationMs = endedAt.getTime() - startedAt.getTime();
+        console.log(
+          `[generateImage] image=${imgLabel} attempt=${attempt + 1} model=${plan.model} status=${res.status} duration=${durationMs}ms end=${endedAt.toISOString()}`,
+        );
+
+        if (!res.ok) {
+          const text = await res.text();
+          let code: string | null = null;
+          let message = `Erreur Lovable AI (${res.status}).`;
+          try {
+            const parsed = JSON.parse(text) as { error?: { code?: string; message?: string; type?: string } };
+            if (parsed.error) {
+              code = parsed.error.code ?? parsed.error.type ?? null;
+              if (parsed.error.message) message = parsed.error.message;
+            }
+          } catch { /* not JSON */ }
+          if (res.status === 429) message = "Limite de débit Lovable AI atteinte, réessaie dans un instant.";
+          if (res.status === 402) message = "Crédits Lovable AI épuisés — ajoute des crédits au workspace.";
+          console.error(`[generateImage] image=${imgLabel} attempt=${attempt + 1} body=`, text.slice(0, 300));
+          lastErr = { httpStatus: res.status, code, message, modelUsed: plan.model };
+
+          const retriable = res.status === 504 || res.status === 503 || res.status === 502 || res.status === 408;
+          if (retriable && attempt < ATTEMPTS.length - 1) {
+            await sleep(plan.waitAfterMs);
+            continue;
+          }
+          // Non-retriable (429, 402, 401, 400, etc.) → fail immediately
+          return { ok: false as const, index: data.index, ...lastErr };
         }
-      } catch {
-        /* not JSON */
+
+        const json = (await res.json()) as {
+          choices?: Array<{ message?: { images?: Array<{ image_url?: { url?: string } }> } }>;
+        };
+        const url = json.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+        if (!url || !url.startsWith("data:")) {
+          console.error(`[generateImage] image=${imgLabel} no image in response`);
+          lastErr = { httpStatus: 500, code: "no_image", message: "Pas d'image retournée par Gemini.", modelUsed: plan.model };
+          if (attempt < ATTEMPTS.length - 1) { await sleep(plan.waitAfterMs); continue; }
+          return { ok: false as const, index: data.index, ...lastErr };
+        }
+        imageUrl = url;
+        modelUsedFinal = plan.model;
+        break;
+      } catch (e) {
+        clearTimeout(timer);
+        const durationMs = Date.now() - startedAt.getTime();
+        const isAbort = e instanceof Error && e.name === "AbortError";
+        console.error(
+          `[generateImage] image=${imgLabel} attempt=${attempt + 1} model=${plan.model} ${isAbort ? "TIMEOUT" : "FETCH_ERROR"} after ${durationMs}ms:`,
+          e instanceof Error ? e.message : e,
+        );
+        lastErr = {
+          httpStatus: isAbort ? 504 : 500,
+          code: isAbort ? "timeout" : "fetch_error",
+          message: isAbort ? `Timeout après ${plan.timeoutMs / 1000}s sur ${plan.model}.` : "Erreur réseau Lovable AI.",
+          modelUsed: plan.model,
+        };
+        if (attempt < ATTEMPTS.length - 1) { await sleep(plan.waitAfterMs); continue; }
+        return { ok: false as const, index: data.index, ...lastErr };
       }
-      if (res.status === 429) message = "Limite de débit Lovable AI atteinte, réessaie dans un instant.";
-      if (res.status === 402) message = "Crédits Lovable AI épuisés — ajoute des crédits au workspace.";
-      return {
-        ok: false as const,
-        index: data.index,
-        httpStatus: res.status,
-        code,
-        message,
-        modelUsed: IMAGE_MODEL,
-      };
     }
 
-    const json = (await res.json()) as {
-      choices?: Array<{
-        message?: {
-          images?: Array<{ image_url?: { url?: string } }>;
-        };
-      }>;
-    };
-    const imageUrl = json.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    if (!imageUrl || !imageUrl.startsWith("data:")) {
-      console.error("[generateImage] No image in response:", JSON.stringify(json).slice(0, 500));
-      return { ok: false as const, index: data.index, httpStatus: 500, code: "no_image", message: "Pas d'image retournée par Gemini." };
+    if (!imageUrl) {
+      return { ok: false as const, index: data.index, ...lastErr };
     }
 
     // Parse data URL: data:image/png;base64,XXXX
     const match = /^data:([^;]+);base64,(.+)$/.exec(imageUrl);
     if (!match) {
-      return { ok: false as const, index: data.index, httpStatus: 500, code: "bad_data_url", message: "Format d'image inattendu." };
+      return { ok: false as const, index: data.index, httpStatus: 500, code: "bad_data_url", message: "Format d'image inattendu.", modelUsed: modelUsedFinal };
     }
     const contentType = match[1]!;
     const b64 = match[2]!;
