@@ -176,11 +176,11 @@ export const generateImage = createServerFn({ method: "POST" })
       { type: "text", text: fullPrompt },
       ...referenceDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
     ];
-    const requestBody = JSON.stringify({
+    const baseBody = {
       messages: [{ role: "user", content: userContent }],
       modalities: ["image", "text"],
-    });
-    const payloadKB = (requestBody.length / 1024).toFixed(1);
+    };
+    const payloadKB = (JSON.stringify(baseBody).length / 1024).toFixed(1);
     const imgLabel = `${data.index + 1}/12`;
 
     let lastErr: {
