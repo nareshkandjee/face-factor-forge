@@ -83,8 +83,8 @@ function ResultsPage() {
         setPhase("generating");
 
         // 3. Generate 12 images SEQUENTIALLY with 13s delay to respect 5 img/min limit.
-        // Fallback to "gpt-image" if "gpt-image-2" is unavailable on the org.
-        let currentModel: "gpt-image-2" | "gpt-image" = "gpt-image-2";
+        // Fallback to "gpt-image-1-mini" if "gpt-image-1" hits insufficient_quota.
+        let currentModel: "gpt-image-1" | "gpt-image-1-mini" = "gpt-image-1";
         let modelFallbackTried = false;
 
         for (let index = 0; index < prompts.length; index++) {
@@ -114,23 +114,20 @@ function ResultsPage() {
               break;
             }
 
-            // Model not found / not authorized → try fallback once
-            const looksLikeModelMissing =
-              !modelFallbackTried &&
-              currentModel === "gpt-image-2" &&
-              (result.httpStatus === 404 ||
-                result.code === "model_not_found" ||
-                /model/i.test(result.message ?? "") && /(not found|not authorized|does not exist|unknown)/i.test(result.message ?? ""));
-            if (looksLikeModelMissing) {
+            // insufficient_quota on gpt-image-1 → fallback to gpt-image-1-mini once
+            const isQuota =
+              result.code === "insufficient_quota" ||
+              /insufficient_quota/i.test(result.message ?? "");
+            if (!modelFallbackTried && currentModel === "gpt-image-1" && isQuota) {
               modelFallbackTried = true;
-              currentModel = "gpt-image";
-              console.warn(`[generateImage] falling back to model=gpt-image`);
-              toast.info("Basculement automatique sur le modèle gpt-image.");
-              continue; // retry same index with new model
+              currentModel = "gpt-image-1-mini";
+              console.warn(`[generateImage] falling back to model=gpt-image-1-mini`);
+              toast.info("Basculement automatique sur gpt-image-1-mini.");
+              continue;
             }
 
-            // 429 / insufficient_quota → wait 30s and retry once
-            const isRate = result.httpStatus === 429 || result.code === "rate_limit_exceeded" || result.code === "insufficient_quota";
+            // 429 / rate limit → wait 30s and retry once
+            const isRate = result.httpStatus === 429 || result.code === "rate_limit_exceeded";
             if (isRate && attempt === 1) {
               toast.warning(`Rate limit atteint sur la photo ${index + 1}, nouvelle tentative dans 30s...`);
               await sleep(30000);
@@ -294,7 +291,7 @@ function ResultsPage() {
               <span className="text-sm font-medium">
                 {phase === "loading" && "Chargement..."}
                 {phase === "prompting" && "Préparation des directions artistiques..."}
-                {phase === "generating" && `Génération en cours... (${doneCount}/${totalSlots} photos prêtes)`}
+                {phase === "generating" && `Génération en cours... (${doneCount}/${totalSlots} photos prêtes) — environ 2-3 minutes`}
                 {allDone && `Terminé — ${doneCount}/${totalSlots} photos`}
               </span>
             </div>
