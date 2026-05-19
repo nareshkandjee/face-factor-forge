@@ -81,7 +81,7 @@ function ResultsPage() {
         let modelFallbackTried = false;
 
         for (let index = 0; index < prompts.length; index++) {
-          const prompt = prompts[index];
+          const prompt = prompts[index]!;
           setSlots((prev) => {
             const next = [...prev];
             next[index] = { status: "generating", prompt };
