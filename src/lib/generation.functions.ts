@@ -20,7 +20,14 @@ const buildSystemPrompt = (count: number) =>
     : `Tu es un directeur artistique expert en photos de profil pour applications de rencontres (Tinder, Hinge, Bumble). Génère ${count} prompts de génération d'image en ANGLAIS, distincts et variés, optimisés pour séduire la cible décrite. Chaque prompt doit décrire UNE scène précise avec : lieu, lumière (golden hour, studio, néon, naturelle...), pose, expression, tenue cohérente avec le style indiqué, cadrage (close-up portrait, plan américain, plan large). Varie les scènes selon les types demandés. Varie les expressions (sourire franc, regard intense, rire naturel, expression réfléchie). Retourne UNIQUEMENT un JSON valide au format : {"prompts": ["prompt1", "prompt2", ...]} avec exactement ${count} prompts en anglais.`;
 
 export const generatePrompts = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ submissionId: z.string().uuid() }).parse(d))
+  .inputValidator((d) =>
+    z
+      .object({
+        submissionId: z.string().uuid(),
+        count: z.number().int().min(1).max(12).optional(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data }) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("OPENAI_API_KEY manquante côté serveur.");
