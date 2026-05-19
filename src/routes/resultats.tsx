@@ -259,14 +259,19 @@ function ResultsPage() {
       <SiteHeader />
       <Toaster richColors theme="dark" />
       <main className="mx-auto max-w-6xl px-5 py-12">
+        {isTestMode && (
+          <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs font-semibold text-amber-300">
+            <FlaskConical className="h-3.5 w-3.5" /> Mode test ({TEST_MODE_PHOTO_COUNT} photos)
+          </div>
+        )}
         <header className="text-center">
           <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">
             Tes photos <span className="text-gradient-primary">MatchShot</span>
           </h1>
           <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
             {allDone
-              ? "Tes 12 photos sont prêtes 🔥"
-              : "12 photos optimisées générées rien que pour toi."}
+              ? `Tes ${photoCount} photos sont prêtes 🔥`
+              : `${photoCount} photos optimisées générées rien que pour toi.`}
           </p>
         </header>
 
