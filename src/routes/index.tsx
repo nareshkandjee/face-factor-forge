@@ -115,7 +115,8 @@ function LandingPage() {
         </div>
       </section>
 
-        <div className="mt-10 text-center">
+      <section className="mx-auto max-w-3xl px-5 pb-10">
+        <div className="text-center">
           <Link
             to="/questionnaire"
             search={{ test: 1 }}
