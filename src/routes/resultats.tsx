@@ -291,7 +291,7 @@ function ResultsPage() {
               <span className="text-sm font-medium">
                 {phase === "loading" && "Chargement..."}
                 {phase === "prompting" && "Préparation des directions artistiques..."}
-                {phase === "generating" && `Génération en cours... (${doneCount}/${totalSlots} photos prêtes)`}
+                {phase === "generating" && `Génération en cours... (${doneCount}/${totalSlots} photos prêtes) — environ 2-3 minutes`}
                 {allDone && `Terminé — ${doneCount}/${totalSlots} photos`}
               </span>
             </div>
