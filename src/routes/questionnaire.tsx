@@ -43,7 +43,7 @@ function QuestionnairePage() {
 
   const next = () => {
     if (!canNext) return;
-    if (step === TOTAL) { navigate({ to: "/upload", search: (prev) => prev }); return; }
+    if (step === TOTAL) { navigate({ to: "/upload" }); return; }
     setStep((s) => s + 1);
   };
   const prev = () => setStep((s) => Math.max(1, s - 1));
