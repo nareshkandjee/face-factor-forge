@@ -91,7 +91,13 @@ export const generatePrompts = createServerFn({ method: "POST" })
     return { ok: true as const, prompts: prompts.slice(0, 12) };
   });
 
-// ---------- 2. Generate ONE image via gpt-image-2 ----------
+// ---------- 2. Generate ONE image via Lovable AI (Gemini Nano Banana Pro) ----------
+
+const LOVABLE_AI_API = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const IMAGE_MODEL = "google/gemini-3.1-flash-image-preview";
+
+const IDENTITY_PREFIX =
+  "CRITICAL: Preserve the EXACT facial features, skin tone, eye color, jawline, hair, and overall identity of the person in the reference images. The generated image MUST be clearly recognizable as the same person. Do not alter facial structure. Only change scene, clothing, pose, lighting, and expression as described below.\n\nScene description: ";
 
 export const generateImage = createServerFn({ method: "POST" })
   .inputValidator((d) =>
@@ -100,17 +106,16 @@ export const generateImage = createServerFn({ method: "POST" })
         submissionId: z.string().uuid(),
         prompt: z.string().min(1),
         index: z.number().int().min(0).max(11),
-        referenceUrls: z.array(z.string().url()).min(1).max(10),
-        model: z.enum(["gpt-image-1", "gpt-image-1-mini"]).optional(),
+        referenceUrls: z.array(z.string().url()).min(1).max(14),
       })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("OPENAI_API_KEY manquante côté serveur.");
+    const apiKey = process.env.LOVABLE_API_KEY;
+    if (!apiKey) throw new Error("LOVABLE_API_KEY manquante côté serveur.");
 
-    // Download all reference photos — first one is the most-preserved identity reference
-    const referenceBlobs: Array<{ blob: Blob; filename: string }> = [];
+    // Download all reference photos and convert to base64 data URLs
+    const referenceDataUrls: string[] = [];
     for (let i = 0; i < data.referenceUrls.length; i++) {
       const url = data.referenceUrls[i];
       const r = await fetch(url);
@@ -118,38 +123,43 @@ export const generateImage = createServerFn({ method: "POST" })
         console.error(`[generateImage] Failed to fetch reference ${i}: ${url}`);
         continue;
       }
-      const blob = await r.blob();
-      const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
-      referenceBlobs.push({ blob, filename: `ref_${i}.${ext}` });
+      const buf = new Uint8Array(await r.arrayBuffer());
+      const mime = r.headers.get("content-type") ?? "image/jpeg";
+      // Base64 encode
+      let binary = "";
+      for (let j = 0; j < buf.byteLength; j++) binary += String.fromCharCode(buf[j]!);
+      const b64 = btoa(binary);
+      referenceDataUrls.push(`data:${mime};base64,${b64}`);
     }
-    if (referenceBlobs.length === 0) throw new Error("Impossible de récupérer les photos de référence.");
-
-    // Build multipart form-data for images/edits
-    const modelUsed = data.model ?? "gpt-image-1";
-    const form = new FormData();
-    form.append("model", modelUsed);
-    form.append("prompt", data.prompt);
-    form.append("size", "1024x1536");
-    form.append("quality", "high");
-    // gpt-image-1 (and gpt-image-1-mini) support input_fidelity — crucial for face fidelity.
-    form.append("input_fidelity", "high");
-    // The first image is the strongest identity anchor.
-    for (const { blob, filename } of referenceBlobs) {
-      form.append("image[]", blob, filename);
+    if (referenceDataUrls.length === 0) {
+      return { ok: false as const, index: data.index, httpStatus: 500, code: "no_references", message: "Impossible de récupérer les photos de référence." };
     }
 
-    const res = await fetch(`${OPENAI_API}/images/edits`, {
+    const fullPrompt = IDENTITY_PREFIX + data.prompt;
+
+    const userContent: Array<Record<string, unknown>> = [
+      { type: "text", text: fullPrompt },
+      ...referenceDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+    ];
+
+    const res = await fetch(LOVABLE_AI_API, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: IMAGE_MODEL,
+        messages: [{ role: "user", content: userContent }],
+        modalities: ["image", "text"],
+      }),
     });
 
     if (!res.ok) {
       const text = await res.text();
-      console.error(`[generateImage] OpenAI error (model=${modelUsed}, status=${res.status}):`, text);
-      // Try to parse OpenAI error envelope { error: { code, message, type } }
+      console.error(`[generateImage] Lovable AI error (status=${res.status}):`, text);
       let code: string | null = null;
-      let message = `Erreur OpenAI (${res.status}).`;
+      let message = `Erreur Lovable AI (${res.status}).`;
       try {
         const parsed = JSON.parse(text) as { error?: { code?: string; message?: string; type?: string } };
         if (parsed.error) {
@@ -159,31 +169,46 @@ export const generateImage = createServerFn({ method: "POST" })
       } catch {
         /* not JSON */
       }
-      if (res.status === 401) {
-        return { ok: false as const, index: data.index, httpStatus: 401, code: "invalid_api_key", message: "Clé OpenAI invalide." };
-      }
+      if (res.status === 429) message = "Limite de débit Lovable AI atteinte, réessaie dans un instant.";
+      if (res.status === 402) message = "Crédits Lovable AI épuisés — ajoute des crédits au workspace.";
       return {
         ok: false as const,
         index: data.index,
         httpStatus: res.status,
         code,
         message,
-        modelUsed,
+        modelUsed: IMAGE_MODEL,
       };
     }
 
-    const json = (await res.json()) as { data?: Array<{ b64_json?: string }> };
-    const b64 = json.data?.[0]?.b64_json;
-    if (!b64) {
-      return { ok: false as const, index: data.index, httpStatus: 500, code: "no_image", message: "Pas d'image retournée par OpenAI." };
+    const json = (await res.json()) as {
+      choices?: Array<{
+        message?: {
+          images?: Array<{ image_url?: { url?: string } }>;
+        };
+      }>;
+    };
+    const imageUrl = json.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    if (!imageUrl || !imageUrl.startsWith("data:")) {
+      console.error("[generateImage] No image in response:", JSON.stringify(json).slice(0, 500));
+      return { ok: false as const, index: data.index, httpStatus: 500, code: "no_image", message: "Pas d'image retournée par Gemini." };
     }
 
-    // Decode base64 → bytes → upload to Supabase Storage
+    // Parse data URL: data:image/png;base64,XXXX
+    const match = /^data:([^;]+);base64,(.+)$/.exec(imageUrl);
+    if (!match) {
+      return { ok: false as const, index: data.index, httpStatus: 500, code: "bad_data_url", message: "Format d'image inattendu." };
+    }
+    const contentType = match[1]!;
+    const b64 = match[2]!;
+    const ext = contentType.split("/")[1]?.split("+")[0] ?? "png";
+
+    // Upload to Supabase Storage
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const path = `${data.submissionId}/${data.index}_${Date.now()}.png`;
+    const path = `${data.submissionId}/${data.index}_${Date.now()}.${ext}`;
     const { error: upErr } = await supabaseAdmin.storage
       .from("generated_photos")
-      .upload(path, bytes, { contentType: "image/png", upsert: false });
+      .upload(path, bytes, { contentType, upsert: false });
     if (upErr) {
       return { ok: false as const, index: data.index, httpStatus: 500, code: "upload_failed", message: `Upload échoué: ${upErr.message}` };
     }
@@ -191,7 +216,7 @@ export const generateImage = createServerFn({ method: "POST" })
     const { data: pub } = supabaseAdmin.storage.from("generated_photos").getPublicUrl(path);
     const publicUrl = pub.publicUrl;
 
-    // Append URL to submissions.generated_photos_urls atomically-ish
+    // Append URL to submissions.generated_photos_urls
     const { data: cur } = await supabaseAdmin
       .from("submissions")
       .select("generated_photos_urls")
@@ -203,7 +228,7 @@ export const generateImage = createServerFn({ method: "POST" })
       .update({ generated_photos_urls: next })
       .eq("id", data.submissionId);
 
-    return { ok: true as const, url: publicUrl, index: data.index, modelUsed };
+    return { ok: true as const, url: publicUrl, index: data.index, modelUsed: IMAGE_MODEL };
   });
 
 // ---------- 3. Mark submission complete ----------
