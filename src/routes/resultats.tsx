@@ -83,8 +83,8 @@ function ResultsPage() {
         setPhase("generating");
 
         // 3. Generate 12 images SEQUENTIALLY with 13s delay to respect 5 img/min limit.
-        // Fallback to "gpt-image" if "gpt-image-2" is unavailable on the org.
-        let currentModel: "gpt-image-2" | "gpt-image" = "gpt-image-2";
+        // Fallback to "gpt-image-1-mini" if "gpt-image-1" hits insufficient_quota.
+        let currentModel: "gpt-image-1" | "gpt-image-1-mini" = "gpt-image-1";
         let modelFallbackTried = false;
 
         for (let index = 0; index < prompts.length; index++) {
