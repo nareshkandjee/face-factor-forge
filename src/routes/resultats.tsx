@@ -82,11 +82,8 @@ function ResultsPage() {
         setSlots(prompts.map((p) => ({ status: "pending" as const, prompt: p })));
         setPhase("generating");
 
-        // 3. Generate 12 images SEQUENTIALLY with 13s delay to respect 5 img/min limit.
-        // Fallback to "gpt-image-1-mini" if "gpt-image-1" hits insufficient_quota.
-        let currentModel: "gpt-image-1" | "gpt-image-1-mini" = "gpt-image-1";
-        let modelFallbackTried = false;
-
+        // 3. Generate 12 images SEQUENTIALLY via Lovable AI (Gemini Nano Banana Pro).
+        // Plus permissif que OpenAI : 2s entre chaque appel suffit.
         for (let index = 0; index < prompts.length; index++) {
           const prompt = prompts[index]!;
           setSlots((prev) => {
@@ -95,13 +92,12 @@ function ResultsPage() {
             return next;
           });
 
-          // single attempt — may retry once on 429 / quota
           let attempt = 0;
           // eslint-disable-next-line no-constant-condition
           while (true) {
             attempt++;
             const result = await imageFn({
-              data: { submissionId: id, prompt, index, referenceUrls, model: currentModel },
+              data: { submissionId: id, prompt, index, referenceUrls },
             });
 
             if (result.ok) {
@@ -114,27 +110,15 @@ function ResultsPage() {
               break;
             }
 
-            // insufficient_quota on gpt-image-1 → fallback to gpt-image-1-mini once
-            const isQuota =
-              result.code === "insufficient_quota" ||
-              /insufficient_quota/i.test(result.message ?? "");
-            if (!modelFallbackTried && currentModel === "gpt-image-1" && isQuota) {
-              modelFallbackTried = true;
-              currentModel = "gpt-image-1-mini";
-              console.warn(`[generateImage] falling back to model=gpt-image-1-mini`);
-              toast.info("Basculement automatique sur gpt-image-1-mini.");
-              continue;
-            }
-
-            // 429 / rate limit → wait 30s and retry once
-            const isRate = result.httpStatus === 429 || result.code === "rate_limit_exceeded";
+            // 429 rate limit → wait 10s and retry once
+            const isRate = result.httpStatus === 429;
             if (isRate && attempt === 1) {
-              toast.warning(`Rate limit atteint sur la photo ${index + 1}, nouvelle tentative dans 30s...`);
-              await sleep(30000);
+              toast.warning(`Limite de débit sur la photo ${index + 1}, nouvelle tentative dans 10s...`);
+              await sleep(10000);
               continue;
             }
 
-            // Definitive failure for this slot
+            // Definitive failure
             console.error(`[generateImage] slot ${index} failed:`, result);
             toast.error(`Photo ${index + 1}: ${result.message ?? "erreur"}`);
             setSlots((prev) => {
@@ -145,9 +129,9 @@ function ResultsPage() {
             break;
           }
 
-          // Throttle: 13s between requests to stay under 5/min (skip after last)
+          // Throttle: 2s between requests
           if (index < prompts.length - 1) {
-            await sleep(13000);
+            await sleep(2000);
           }
         }
 
