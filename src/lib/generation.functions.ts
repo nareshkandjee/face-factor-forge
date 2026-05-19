@@ -31,6 +31,8 @@ export const generatePrompts = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("OPENAI_API_KEY manquante côté serveur.");
+    const count = data.count ?? PRODUCTION_PHOTO_COUNT;
+    const systemPrompt = buildSystemPrompt(count);
 
     // Load the submission to build the user prompt
     const { data: sub, error } = await supabaseAdmin
