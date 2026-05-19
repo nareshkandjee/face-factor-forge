@@ -25,10 +25,12 @@ export type Database = {
           generated_photos_urls: string[]
           id: string
           looking_for: string | null
+          lora_url: string | null
           photos_urls: string[] | null
           scenes: string[] | null
           status: string
           styles_liked: string[] | null
+          trigger_word: string | null
           vibe: string | null
         }
         Insert: {
@@ -41,10 +43,12 @@ export type Database = {
           generated_photos_urls?: string[]
           id?: string
           looking_for?: string | null
+          lora_url?: string | null
           photos_urls?: string[] | null
           scenes?: string[] | null
           status?: string
           styles_liked?: string[] | null
+          trigger_word?: string | null
           vibe?: string | null
         }
         Update: {
@@ -57,10 +61,12 @@ export type Database = {
           generated_photos_urls?: string[]
           id?: string
           looking_for?: string | null
+          lora_url?: string | null
           photos_urls?: string[] | null
           scenes?: string[] | null
           status?: string
           styles_liked?: string[] | null
+          trigger_word?: string | null
           vibe?: string | null
         }
         Relationships: []

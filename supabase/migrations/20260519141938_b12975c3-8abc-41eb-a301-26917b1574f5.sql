@@ -1,0 +1,1 @@
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS lora_url TEXT, ADD COLUMN IF NOT EXISTS trigger_word TEXT;
