@@ -115,6 +115,17 @@ function LandingPage() {
         </div>
       </section>
 
+        <div className="mt-10 text-center">
+          <Link
+            to="/questionnaire"
+            search={{ test: 1 }}
+            className="text-xs text-muted-foreground/60 hover:text-muted-foreground underline-offset-4 hover:underline"
+          >
+            🧪 Mode test (3 photos)
+          </Link>
+        </div>
+      </section>
+
       <SiteFooter />
     </div>
   );
