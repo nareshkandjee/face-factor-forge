@@ -71,7 +71,14 @@ function ResultsPage() {
 
         // 2. Generate 12 prompts
         setPhase("prompting");
-        const { prompts } = await promptsFn({ data: { submissionId: id } });
+        const promptResult = await promptsFn({ data: { submissionId: id } });
+        if (!promptResult.ok) {
+          setGlobalError(promptResult.message);
+          setPhase("error");
+          toast.error(promptResult.message);
+          return;
+        }
+        const { prompts } = promptResult;
         setSlots(prompts.map((p) => ({ status: "pending" as const, prompt: p })));
         setPhase("generating");
 
