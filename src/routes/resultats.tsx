@@ -46,6 +46,8 @@ function ResultsPage() {
     if (!id || startedRef.current) return;
     startedRef.current = true;
 
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
     (async () => {
       try {
         // 1. Load submission to get reference photos + check if already done
@@ -70,30 +72,80 @@ function ResultsPage() {
         // 2. Generate 12 prompts
         setPhase("prompting");
         const { prompts } = await promptsFn({ data: { submissionId: id } });
-        setSlots(prompts.map((p) => ({ status: "generating" as const, prompt: p })));
+        setSlots(prompts.map((p) => ({ status: "pending" as const, prompt: p })));
         setPhase("generating");
 
-        // 3. Generate 12 images in parallel
-        const tasks = prompts.map(async (prompt, index) => {
-          try {
-            const { url } = await imageFn({
-              data: { submissionId: id, prompt, index, referenceUrls },
+        // 3. Generate 12 images SEQUENTIALLY with 13s delay to respect 5 img/min limit.
+        // Fallback to "gpt-image" if "gpt-image-2" is unavailable on the org.
+        let currentModel: "gpt-image-2" | "gpt-image" = "gpt-image-2";
+        let modelFallbackTried = false;
+
+        for (let index = 0; index < prompts.length; index++) {
+          const prompt = prompts[index];
+          setSlots((prev) => {
+            const next = [...prev];
+            next[index] = { status: "generating", prompt };
+            return next;
+          });
+
+          // single attempt — may retry once on 429 / quota
+          let attempt = 0;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            attempt++;
+            const result = await imageFn({
+              data: { submissionId: id, prompt, index, referenceUrls, model: currentModel },
             });
+
+            if (result.ok) {
+              console.log(`[generateImage] slot ${index} OK with model=${result.modelUsed}`);
+              setSlots((prev) => {
+                const next = [...prev];
+                next[index] = { status: "done", prompt, url: result.url };
+                return next;
+              });
+              break;
+            }
+
+            // Model not found / not authorized → try fallback once
+            const looksLikeModelMissing =
+              !modelFallbackTried &&
+              currentModel === "gpt-image-2" &&
+              (result.httpStatus === 404 ||
+                result.code === "model_not_found" ||
+                /model/i.test(result.message ?? "") && /(not found|not authorized|does not exist|unknown)/i.test(result.message ?? ""));
+            if (looksLikeModelMissing) {
+              modelFallbackTried = true;
+              currentModel = "gpt-image";
+              console.warn(`[generateImage] falling back to model=gpt-image`);
+              toast.info("Basculement automatique sur le modèle gpt-image.");
+              continue; // retry same index with new model
+            }
+
+            // 429 / insufficient_quota → wait 30s and retry once
+            const isRate = result.httpStatus === 429 || result.code === "rate_limit_exceeded" || result.code === "insufficient_quota";
+            if (isRate && attempt === 1) {
+              toast.warning(`Rate limit atteint sur la photo ${index + 1}, nouvelle tentative dans 30s...`);
+              await sleep(30000);
+              continue;
+            }
+
+            // Definitive failure for this slot
+            console.error(`[generateImage] slot ${index} failed:`, result);
+            toast.error(`Photo ${index + 1}: ${result.message ?? "erreur"}`);
             setSlots((prev) => {
               const next = [...prev];
-              next[index] = { status: "done", prompt, url };
+              next[index] = { status: "error", prompt, error: result.message ?? "Erreur" };
               return next;
             });
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : "Erreur génération";
-            setSlots((prev) => {
-              const next = [...prev];
-              next[index] = { status: "error", prompt, error: msg };
-              return next;
-            });
+            break;
           }
-        });
-        await Promise.all(tasks);
+
+          // Throttle: 13s between requests to stay under 5/min (skip after last)
+          if (index < prompts.length - 1) {
+            await sleep(13000);
+          }
+        }
 
         // 4. Mark complete only if all 12 succeeded
         setSlots((prev) => {
@@ -123,7 +175,7 @@ function ResultsPage() {
     });
     try {
       const { submission } = await subFn({ data: { submissionId: id } });
-      const { url } = await imageFn({
+      const result = await imageFn({
         data: {
           submissionId: id,
           prompt: slot.prompt,
@@ -131,9 +183,12 @@ function ResultsPage() {
           referenceUrls: submission.photos_urls ?? [],
         },
       });
+      if (!result.ok) {
+        throw new Error(result.message ?? "Erreur génération");
+      }
       setSlots((prev) => {
         const next = [...prev];
-        next[index] = { status: "done", prompt: slot.prompt, url };
+        next[index] = { status: "done", prompt: slot.prompt, url: result.url };
         return next;
       });
     } catch (e) {
