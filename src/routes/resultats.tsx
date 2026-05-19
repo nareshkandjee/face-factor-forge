@@ -236,7 +236,7 @@ function ResultsPage() {
   };
 
   const doneCount = slots.filter((s) => s.status === "done").length;
-  const totalSlots = slots.length || 12;
+  const totalSlots = slots.length || photoCount;
   const allDone = phase === "done" && doneCount === totalSlots;
 
   if (!id) {
