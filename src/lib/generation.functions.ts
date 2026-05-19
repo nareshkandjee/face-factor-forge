@@ -114,8 +114,9 @@ export const generateImage = createServerFn({ method: "POST" })
     if (referenceBlobs.length === 0) throw new Error("Impossible de récupérer les photos de référence.");
 
     // Build multipart form-data for images/edits
+    const modelUsed = data.model ?? "gpt-image-2";
     const form = new FormData();
-    form.append("model", "gpt-image-2");
+    form.append("model", modelUsed);
     form.append("prompt", data.prompt);
     form.append("size", "1024x1536");
     form.append("quality", "high");
@@ -133,15 +134,37 @@ export const generateImage = createServerFn({ method: "POST" })
 
     if (!res.ok) {
       const text = await res.text();
-      console.error("[generateImage] OpenAI error:", res.status, text);
-      if (res.status === 401) throw new Error("Clé OpenAI invalide.");
-      if (res.status === 429) throw new Error("Quota OpenAI atteint.");
-      throw new Error(`Erreur OpenAI (${res.status}).`);
+      console.error(`[generateImage] OpenAI error (model=${modelUsed}, status=${res.status}):`, text);
+      // Try to parse OpenAI error envelope { error: { code, message, type } }
+      let code: string | null = null;
+      let message = `Erreur OpenAI (${res.status}).`;
+      try {
+        const parsed = JSON.parse(text) as { error?: { code?: string; message?: string; type?: string } };
+        if (parsed.error) {
+          code = parsed.error.code ?? parsed.error.type ?? null;
+          if (parsed.error.message) message = parsed.error.message;
+        }
+      } catch {
+        /* not JSON */
+      }
+      if (res.status === 401) {
+        return { ok: false as const, index: data.index, httpStatus: 401, code: "invalid_api_key", message: "Clé OpenAI invalide." };
+      }
+      return {
+        ok: false as const,
+        index: data.index,
+        httpStatus: res.status,
+        code,
+        message,
+        modelUsed,
+      };
     }
 
     const json = (await res.json()) as { data?: Array<{ b64_json?: string }> };
     const b64 = json.data?.[0]?.b64_json;
-    if (!b64) throw new Error("Pas d'image retournée par OpenAI.");
+    if (!b64) {
+      return { ok: false as const, index: data.index, httpStatus: 500, code: "no_image", message: "Pas d'image retournée par OpenAI." };
+    }
 
     // Decode base64 → bytes → upload to Supabase Storage
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -149,7 +172,9 @@ export const generateImage = createServerFn({ method: "POST" })
     const { error: upErr } = await supabaseAdmin.storage
       .from("generated_photos")
       .upload(path, bytes, { contentType: "image/png", upsert: false });
-    if (upErr) throw new Error(`Upload échoué: ${upErr.message}`);
+    if (upErr) {
+      return { ok: false as const, index: data.index, httpStatus: 500, code: "upload_failed", message: `Upload échoué: ${upErr.message}` };
+    }
 
     const { data: pub } = supabaseAdmin.storage.from("generated_photos").getPublicUrl(path);
     const publicUrl = pub.publicUrl;
