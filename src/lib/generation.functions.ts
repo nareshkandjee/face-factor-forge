@@ -191,7 +191,7 @@ export const generateImage = createServerFn({ method: "POST" })
       .update({ generated_photos_urls: next })
       .eq("id", data.submissionId);
 
-    return { url: publicUrl, index: data.index };
+    return { ok: true as const, url: publicUrl, index: data.index, modelUsed };
   });
 
 // ---------- 3. Mark submission complete ----------
