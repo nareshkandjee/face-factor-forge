@@ -22,6 +22,7 @@ export type Database = {
           created_at: string
           dress_style: string | null
           gender: string | null
+          generated_photos_urls: string[]
           id: string
           looking_for: string | null
           photos_urls: string[] | null
@@ -37,6 +38,7 @@ export type Database = {
           created_at?: string
           dress_style?: string | null
           gender?: string | null
+          generated_photos_urls?: string[]
           id?: string
           looking_for?: string | null
           photos_urls?: string[] | null
@@ -52,6 +54,7 @@ export type Database = {
           created_at?: string
           dress_style?: string | null
           gender?: string | null
+          generated_photos_urls?: string[]
           id?: string
           looking_for?: string | null
           photos_urls?: string[] | null
