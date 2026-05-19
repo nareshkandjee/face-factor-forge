@@ -14,7 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      submissions: {
+        Row: {
+          age_max: number | null
+          age_min: number | null
+          city: string | null
+          created_at: string
+          dress_style: string | null
+          gender: string | null
+          id: string
+          looking_for: string | null
+          photos_urls: string[] | null
+          scenes: string[] | null
+          status: string
+          styles_liked: string[] | null
+          vibe: string | null
+        }
+        Insert: {
+          age_max?: number | null
+          age_min?: number | null
+          city?: string | null
+          created_at?: string
+          dress_style?: string | null
+          gender?: string | null
+          id?: string
+          looking_for?: string | null
+          photos_urls?: string[] | null
+          scenes?: string[] | null
+          status?: string
+          styles_liked?: string[] | null
+          vibe?: string | null
+        }
+        Update: {
+          age_max?: number | null
+          age_min?: number | null
+          city?: string | null
+          created_at?: string
+          dress_style?: string | null
+          gender?: string | null
+          id?: string
+          looking_for?: string | null
+          photos_urls?: string[] | null
+          scenes?: string[] | null
+          status?: string
+          styles_liked?: string[] | null
+          vibe?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
