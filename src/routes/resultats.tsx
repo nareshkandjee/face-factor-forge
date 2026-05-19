@@ -7,15 +7,20 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
-import { Download, Loader2, RefreshCw, Sparkles, AlertTriangle } from "lucide-react";
+import { Download, Loader2, RefreshCw, Sparkles, AlertTriangle, FlaskConical } from "lucide-react";
 import {
   generatePrompts,
   generateImage,
   markSubmissionComplete,
   getSubmission,
+  TEST_MODE_PHOTO_COUNT,
+  PRODUCTION_PHOTO_COUNT,
 } from "@/lib/generation.functions";
 
-const searchSchema = z.object({ id: z.string().uuid().optional() });
+const searchSchema = z.object({
+  id: z.string().uuid().optional(),
+  test: z.union([z.literal(0), z.literal(1)]).optional(),
+});
 
 export const Route = createFileRoute("/resultats")({
   validateSearch: searchSchema,
