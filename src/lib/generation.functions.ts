@@ -63,7 +63,7 @@ export const generatePrompts = createServerFn({ method: "POST" })
         model: "gpt-5.4-mini",
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
       }),
