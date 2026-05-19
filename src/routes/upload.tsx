@@ -13,7 +13,7 @@ export const Route = createFileRoute("/upload")({
 });
 
 const MAX_FILES = 10;
-const MIN_FILES = 5;
+const MIN_FILES = 6;
 const MAX_SIZE = 10 * 1024 * 1024;
 
 type LocalFile = { id: string; file: File; preview: string };
