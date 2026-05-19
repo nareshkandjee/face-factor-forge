@@ -90,6 +90,7 @@ export const generateImage = createServerFn({ method: "POST" })
         prompt: z.string().min(1),
         index: z.number().int().min(0).max(11),
         referenceUrls: z.array(z.string().url()).min(1).max(10),
+        model: z.enum(["gpt-image-2", "gpt-image"]).optional(),
       })
       .parse(d),
   )
