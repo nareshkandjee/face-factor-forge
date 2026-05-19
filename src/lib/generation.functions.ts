@@ -161,7 +161,8 @@ export const generateImage = createServerFn({ method: "POST" })
       return { ok: false as const, index: data.index, httpStatus: 500, code: "no_references", message: "Impossible de récupérer les photos de référence." };
     }
 
-    const fullPrompt = IDENTITY_PREFIX + data.prompt;
+    const fullPrompt = IDENTITY_PREFIX + data.prompt + IDENTITY_SUFFIX;
+    console.log(`[generateImage] Using model: ${IMAGE_MODEL} (index ${data.index})`);
 
     const userContent: Array<Record<string, unknown>> = [
       { type: "text", text: fullPrompt },
