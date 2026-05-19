@@ -207,7 +207,7 @@ export const generateImage = createServerFn({ method: "POST" })
         const res = await fetch(LOVABLE_AI_API, {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: requestBody.replace(/^\{/, `{"model":${JSON.stringify(plan.model)},`),
+          body: JSON.stringify({ model: plan.model, ...baseBody }),
           signal: ctrl.signal,
         });
         clearTimeout(timer);
