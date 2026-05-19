@@ -125,14 +125,15 @@ export const generateImage = createServerFn({ method: "POST" })
     if (referenceBlobs.length === 0) throw new Error("Impossible de récupérer les photos de référence.");
 
     // Build multipart form-data for images/edits
-    const modelUsed = data.model ?? "gpt-image-2";
+    const modelUsed = data.model ?? "gpt-image-1";
     const form = new FormData();
     form.append("model", modelUsed);
     form.append("prompt", data.prompt);
     form.append("size", "1024x1536");
     form.append("quality", "high");
-    // The first image is the strongest identity anchor on gpt-image-2.
-    // Do NOT pass `input_fidelity` — this parameter does not exist on gpt-image-2.
+    // gpt-image-1 (and gpt-image-1-mini) support input_fidelity — crucial for face fidelity.
+    form.append("input_fidelity", "high");
+    // The first image is the strongest identity anchor.
     for (const { blob, filename } of referenceBlobs) {
       form.append("image[]", blob, filename);
     }
