@@ -50,7 +50,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  validateSearch: zodValidator(rootSearchSchema),
+  validateSearch: rootSearchSchema,
   search: { middlewares: [retainSearchParams(["test"])] },
   head: () => ({
     meta: [
