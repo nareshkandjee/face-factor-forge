@@ -275,7 +275,7 @@ function ResultsPage() {
               <span className="text-sm font-medium">
                 {phase === "loading" && "Chargement..."}
                 {phase === "prompting" && "Préparation des directions artistiques..."}
-                {phase === "generating" && `Génération en cours... (${doneCount}/${totalSlots} photos prêtes) — environ 1 minute`}
+                {phase === "generating" && `Génération en cours... Photo ${Math.min(doneCount + 1, totalSlots)}/${totalSlots}`}
                 {allDone && `Terminé — ${doneCount}/${totalSlots} photos`}
               </span>
             </div>
@@ -286,9 +286,14 @@ function ResultsPage() {
               />
             </div>
             {phase === "generating" && !allDone && (
-              <p className="mt-3 text-xs text-muted-foreground text-center">
-                Génération en cours, environ 1 minute. Ne ferme pas la page.
-              </p>
+              <div className="mt-3 space-y-1 text-center">
+                <p className="text-xs text-muted-foreground">
+                  Temps estimé restant : ~{Math.max(1, totalSlots - doneCount)} minute{totalSlots - doneCount > 1 ? "s" : ""}
+                </p>
+                <p className="text-xs text-muted-foreground/80 italic">
+                  L'IA réfléchit pour préserver ton visage à 100%. Cela prend ~1 min par photo. Ne ferme pas la page.
+                </p>
+              </div>
             )}
           </div>
         )}
