@@ -99,11 +99,11 @@ export const generatePrompts = createServerFn({ method: "POST" })
     const prompts = Array.isArray(parsed.prompts)
       ? (parsed.prompts as unknown[]).filter((p): p is string => typeof p === "string")
       : [];
-    if (prompts.length < 12) {
+    if (prompts.length < count) {
       return { ok: false as const, prompts: [], httpStatus: 500, code: "not_enough_prompts", message: `Seulement ${prompts.length} prompts générés.` };
     }
 
-    return { ok: true as const, prompts: prompts.slice(0, 12) };
+    return { ok: true as const, prompts: prompts.slice(0, count) };
   });
 
 // ---------- 2. Generate ONE image via Lovable AI (Gemini Nano Banana Pro) ----------
