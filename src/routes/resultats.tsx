@@ -64,7 +64,7 @@ function ResultsPage() {
         if (referenceUrls.length === 0) throw new Error("Aucune photo de référence trouvée.");
 
         // Already completed → display existing photos
-        if (submission.status === "completed" && (submission.generated_photos_urls?.length ?? 0) >= 12) {
+        if (submission.status === "completed" && (submission.generated_photos_urls?.length ?? 0) >= photoCount) {
           setSlots(
             submission.generated_photos_urls!.map((url) => ({
               status: "done" as const,
@@ -76,9 +76,9 @@ function ResultsPage() {
           return;
         }
 
-        // 2. Generate 12 prompts
+        // 2. Generate N prompts
         setPhase("prompting");
-        const promptResult = await promptsFn({ data: { submissionId: id } });
+        const promptResult = await promptsFn({ data: { submissionId: id, count: photoCount } });
         if (!promptResult.ok) {
           setGlobalError(promptResult.message);
           setPhase("error");
