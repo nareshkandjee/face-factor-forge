@@ -297,6 +297,11 @@ function ResultsPage() {
                 style={{ width: `${(doneCount / totalSlots) * 100}%` }}
               />
             </div>
+            {phase === "generating" && !allDone && (
+              <p className="mt-3 text-xs text-muted-foreground text-center">
+                Génération en cours, ça prend ~2-3 minutes pour respecter les limites OpenAI. Ne ferme pas la page.
+              </p>
+            )}
           </div>
         )}
 
