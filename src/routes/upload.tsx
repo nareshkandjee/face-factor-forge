@@ -13,7 +13,7 @@ export const Route = createFileRoute("/upload")({
 });
 
 const MAX_FILES = 10;
-const MIN_FILES = 5;
+const MIN_FILES = 6;
 const MAX_SIZE = 10 * 1024 * 1024;
 
 type LocalFile = { id: string; file: File; preview: string };
@@ -102,7 +102,7 @@ function UploadPage() {
       <main className="mx-auto max-w-3xl px-5 py-12">
         <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight">Upload tes selfies</h1>
         <p className="mt-3 text-muted-foreground max-w-xl">
-          Pour de meilleurs résultats, upload entre <strong className="text-foreground">{MIN_FILES} et {MAX_FILES} photos</strong> de toi : face, profil, différentes expressions et tenues. Pas de lunettes de soleil, visage bien visible.
+          Pour de meilleurs résultats, upload entre <strong className="text-foreground">{MIN_FILES} et {MAX_FILES} photos</strong> de toi. <strong className="text-foreground">IMPORTANT</strong> : ta meilleure photo en <strong className="text-foreground">PREMIER</strong> (visage clair, regard caméra, plein cadre). Inclus au minimum : 1 photo de face, 1 photo de 3/4 gauche, 1 photo de 3/4 droite. Pas de lunettes de soleil, pas de casquettes, visage qui occupe 30 à 50% du cadre, éclairage uniforme.
         </p>
 
         <label

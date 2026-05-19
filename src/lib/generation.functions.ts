@@ -94,10 +94,36 @@ export const generatePrompts = createServerFn({ method: "POST" })
 // ---------- 2. Generate ONE image via Lovable AI (Gemini Nano Banana Pro) ----------
 
 const LOVABLE_AI_API = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const IMAGE_MODEL = "google/gemini-3.1-flash-image-preview";
+const IMAGE_MODEL = "google/gemini-3-pro-image-preview";
 
-const IDENTITY_PREFIX =
-  "CRITICAL: Preserve the EXACT facial features, skin tone, eye color, jawline, hair, and overall identity of the person in the reference images. The generated image MUST be clearly recognizable as the same person. Do not alter facial structure. Only change scene, clothing, pose, lighting, and expression as described below.\n\nScene description: ";
+const IDENTITY_PREFIX = `IDENTITY LOCK — CRITICAL:
+
+This is the EXACT SAME PERSON as in the reference images. The first reference image shows the primary identity to preserve.
+
+PRESERVE EXACTLY (do not alter):
+- Eye shape, eye color, eye spacing
+- Nose bridge width and nose tip shape
+- Lip shape and mouth width
+- Jawline contour and chin shape
+- Cheekbone height and face width
+- Skin tone, skin texture, and ethnicity
+- Hair color, hair texture, hairline
+- Facial hair pattern if present
+- Overall face geometry and proportions
+
+The generated person MUST be immediately recognizable as the same individual from the reference images. Do not blend with other faces. Do not idealize features. Maintain authentic ethnic characteristics.
+
+SCENE TO GENERATE:
+`;
+
+const IDENTITY_SUFFIX = `
+
+NEGATIVE (avoid):
+- Different person, face swap, altered facial structure
+- Idealized European features replacing original ethnicity
+- Plastic surgery appearance, over-smoothed skin
+- Generic male model look, uncanny valley
+- Distorted anatomy, unnatural proportions`;
 
 export const generateImage = createServerFn({ method: "POST" })
   .inputValidator((d) =>
@@ -135,7 +161,8 @@ export const generateImage = createServerFn({ method: "POST" })
       return { ok: false as const, index: data.index, httpStatus: 500, code: "no_references", message: "Impossible de récupérer les photos de référence." };
     }
 
-    const fullPrompt = IDENTITY_PREFIX + data.prompt;
+    const fullPrompt = IDENTITY_PREFIX + data.prompt + IDENTITY_SUFFIX;
+    console.log(`[generateImage] Using model: ${IMAGE_MODEL} (index ${data.index})`);
 
     const userContent: Array<Record<string, unknown>> = [
       { type: "text", text: fullPrompt },
