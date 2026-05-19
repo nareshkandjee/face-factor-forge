@@ -94,7 +94,17 @@ export const generatePrompts = createServerFn({ method: "POST" })
 // ---------- 2. Generate ONE image via Lovable AI (Gemini Nano Banana Pro) ----------
 
 const LOVABLE_AI_API = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const IMAGE_MODEL = "google/gemini-3-pro-image-preview";
+const IMAGE_MODEL_PRO = "google/gemini-3-pro-image-preview";
+const IMAGE_MODEL_FLASH = "google/gemini-3.1-flash-image-preview";
+
+type AttemptPlan = { model: string; timeoutMs: number; waitAfterMs: number };
+const ATTEMPTS: AttemptPlan[] = [
+  { model: IMAGE_MODEL_PRO, timeoutMs: 300_000, waitAfterMs: 3_000 },
+  { model: IMAGE_MODEL_PRO, timeoutMs: 300_000, waitAfterMs: 5_000 },
+  { model: IMAGE_MODEL_FLASH, timeoutMs: 120_000, waitAfterMs: 0 },
+];
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const IDENTITY_PREFIX = `IDENTITY LOCK — CRITICAL:
 
