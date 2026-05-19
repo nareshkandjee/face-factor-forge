@@ -82,7 +82,7 @@ function UploadPage() {
         scenes: q.scenes ?? [],
         city: q.city ?? null,
         photos_urls: urls,
-        status: "pending",
+        status: "generating",
       }).select("id").single();
       if (insertErr) throw insertErr;
 
